@@ -1,0 +1,32 @@
+// MintLeadBase Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id          String     @id @default(cuid())
+  companyName String
+  website     String?
+  industry    String?
+  location    String?
+  status      LeadStatus @default(NEW)
+  owner       String?
+  notes       String?
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  WON
+  LOST
+}
