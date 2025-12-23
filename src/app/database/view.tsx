@@ -380,7 +380,10 @@ export default function DatabaseView() {
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Discover real leads</div>
                 <div className="mt-1 text-sm text-zinc-600">
-                  Uses Google Places (requires <code className="rounded bg-zinc-100 px-1 py-0.5">GOOGLE_MAPS_API_KEY</code>). Search, then import into your database.
+                  Uses SerpAPI Google Maps (requires{" "}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5">SERPAPI_API_KEY</code>). Search,
+                  then import into your database. We also try to find the owner via the website
+                  Impressum when available.
                 </div>
               </div>
               <div className="flex items-center gap-2">
