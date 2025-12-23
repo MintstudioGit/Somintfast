@@ -137,6 +137,7 @@ export async function POST(request: NextRequest) {
         address: scrapedLead.address,
         tier: scrapedLead.tier,
         scrapedAt: scrapedLead.scrapedAt,
+        googleMapsData: scrapeResult.data.googleMapsData || null,
         verification: verificationResult
           ? {
               status: verificationResult.status,
@@ -149,6 +150,11 @@ export async function POST(request: NextRequest) {
       meta: {
         scrapingDepth: scrapeResult.scrapingDepth,
         remainingToday: getTierConfig(subscriptionTier).limits.dailyScrapeLimit - scrapedToday - 1,
+        dataSources: {
+          impressum: true,
+          googleMaps: !!scrapeResult.data.googleMapsData,
+          emailVerification: !!verificationResult,
+        },
       },
     });
   } catch (error) {

@@ -3,10 +3,13 @@
  *
  * German websites are legally required to have an "Impressum" (imprint) page
  * containing company information, owner details, and contact information.
+ *
+ * Enriches data with Google Maps when available.
  */
 
 import { SubscriptionTier } from "@prisma/client";
 import { getTierConfig } from "../../lib/tier-config";
+import { GoogleMapsClient } from "../datasources/google-maps";
 
 export interface ScrapedData {
   websiteUrl: string;
@@ -15,6 +18,14 @@ export interface ScrapedData {
   email?: string;
   phone?: string;
   address?: string;
+  googleMapsData?: {
+    name: string;
+    address?: string;
+    phone?: string;
+    website?: string;
+    rating?: number;
+    placeId: string;
+  };
   rawData: Record<string, unknown>;
 }
 
@@ -40,6 +51,11 @@ export class ImpressumScraper {
   private readonly DEFAULT_TIMEOUT = 10000; // 10 seconds
   private readonly DEFAULT_USER_AGENT =
     "Mozilla/5.0 (compatible; LeadFinderBot/1.0; +https://leadfinder.de)";
+  private readonly googleMapsClient: GoogleMapsClient;
+
+  constructor() {
+    this.googleMapsClient = new GoogleMapsClient();
+  }
 
   /**
    * Scrape a German website's Impressum page for lead data
@@ -82,6 +98,11 @@ export class ImpressumScraper {
         tierConfig.features.scrapingDepth
       );
 
+      // Enrich with Google Maps data if enabled for this tier
+      if (tierConfig.features.googleMaps) {
+        await this.enrichWithGoogleMaps(scrapedData, url);
+      }
+
       return {
         success: true,
         data: scrapedData,
@@ -95,6 +116,54 @@ export class ImpressumScraper {
         scrapingDepth: tierConfig.features.scrapingDepth,
         timestamp: new Date(),
       };
+    }
+  }
+
+  /**
+   * Enrich scraped data with Google Maps information
+   */
+  private async enrichWithGoogleMaps(
+    scrapedData: ScrapedData,
+    websiteUrl: string
+  ): Promise<void> {
+    try {
+      // Try to find business by website URL first
+      let googleData = await this.googleMapsClient.findByWebsite(websiteUrl);
+
+      // If not found by website, try by company name
+      if (!googleData && scrapedData.companyName) {
+        googleData = await this.googleMapsClient.searchBusiness(
+          scrapedData.companyName
+        );
+      }
+
+      if (googleData) {
+        scrapedData.googleMapsData = {
+          name: googleData.name,
+          address: googleData.address,
+          phone: googleData.phone,
+          website: googleData.website,
+          rating: googleData.rating,
+          placeId: googleData.placeId,
+        };
+
+        // Merge data - prefer Google Maps data for phone/address if scraped data is missing
+        if (!scrapedData.phone && googleData.phone) {
+          scrapedData.phone = googleData.phone;
+        }
+        if (!scrapedData.address && googleData.address) {
+          scrapedData.address = googleData.address;
+        }
+        if (!scrapedData.companyName && googleData.name) {
+          scrapedData.companyName = googleData.name;
+        }
+
+        // Add to raw data
+        scrapedData.rawData.googleMaps = googleData;
+      }
+    } catch (error) {
+      // Don't fail the whole scrape if Google Maps enrichment fails
+      console.warn("Google Maps enrichment failed:", error);
     }
   }
 

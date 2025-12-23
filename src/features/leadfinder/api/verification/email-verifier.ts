@@ -1,12 +1,13 @@
 /**
- * EmailVerifier - Verifies email addresses using Reoon API or ML fallback
+ * EmailVerifier - Verifies email addresses using Reoon API or SMTP fallback
  *
  * Reoon API provides 97-98% accuracy for email verification
- * Falls back to basic ML verification if Reoon is unavailable
+ * Falls back to free SMTP verification for Solo/Starter tiers
  */
 
 import { VerificationStatus, SubscriptionTier } from "@prisma/client";
-import { getVerificationAccuracy, hasEmailVerification } from "../../lib/tier-config";
+import { getVerificationAccuracy, hasEmailVerification, getVerificationMethod } from "../../lib/tier-config";
+import { SMTPVerifier } from "../datasources/smtp-verifier";
 
 export interface VerificationResult {
   email: string;
@@ -19,7 +20,7 @@ export interface VerificationResult {
   domainScore?: number;
   smtpScore?: number;
   overallScore?: number;
-  provider: "reoon" | "ml-fallback" | "none";
+  provider: "reoon" | "smtp" | "none";
   rawResponse?: Record<string, unknown>;
   error?: string;
 }
@@ -62,9 +63,11 @@ export class EmailVerifier {
   private readonly reoonApiKey: string | undefined;
   private readonly reoonApiUrl = "https://api.reoon.com/api/v1/verify";
   private readonly DEFAULT_TIMEOUT = 15000; // 15 seconds
+  private readonly smtpVerifier: SMTPVerifier;
 
   constructor() {
     this.reoonApiKey = process.env.REOON_API_KEY;
+    this.smtpVerifier = new SMTPVerifier();
   }
 
   /**
@@ -110,8 +113,8 @@ export class EmailVerifier {
         return await this.verifyWithReoon(email, options);
       }
 
-      // Fallback to basic ML verification
-      return await this.verifyWithMLFallback(email, options);
+      // Fallback to free SMTP verification
+      return await this.verifyWithSMTP(email, options);
     } catch (error) {
       return {
         email,
@@ -208,131 +211,46 @@ export class EmailVerifier {
         rawResponse: data.data as Record<string, unknown>,
       };
     } catch (error) {
-      // If Reoon fails, fallback to ML
-      console.warn("Reoon verification failed, falling back to ML:", error);
-      return await this.verifyWithMLFallback(email, options);
+      // If Reoon fails, fallback to SMTP
+      console.warn("Reoon verification failed, falling back to SMTP:", error);
+      return await this.verifyWithSMTP(email, options);
     }
   }
 
   /**
-   * Verify email using ML-based fallback
-   * This is a simplified implementation - in production, you'd use a proper ML model
+   * Verify email using free SMTP verification
+   * Uses DNS MX record checks and disposable domain detection
    */
-  private async verifyWithMLFallback(
+  private async verifyWithSMTP(
     email: string,
     options: VerificationOptions
   ): Promise<VerificationResult> {
-    const [localPart, domain] = email.split("@");
+    // Use SMTP verifier for free verification
+    const smtpResult = await this.smtpVerifier.verify(email, false);
 
-    // Check disposable email domains
-    const isDisposable = this.isDisposableDomain(domain);
-
-    // Check role accounts
-    const isRoleAccount = this.isRoleAccount(localPart);
-
-    // Perform basic DNS check
-    const domainValid = await this.checkDomainExists(domain);
-
-    // Calculate scores
-    const syntaxScore = 100; // Already validated format
-    const domainScore = domainValid ? 90 : 20;
-
-    // Simple SMTP score estimation (would need actual SMTP check in production)
-    const smtpScore = domainValid && !isDisposable ? 75 : 30;
-
-    const overallScore = Math.round(
-      (syntaxScore * 0.2 + domainScore * 0.4 + smtpScore * 0.4)
-    );
-
-    const isValid = overallScore >= 60 && !isDisposable;
-
+    // Map SMTP result to our VerificationResult format
     let status: VerificationStatus;
-    if (isValid && overallScore >= 70) {
+    if (smtpResult.valid && smtpResult.confidence >= 70) {
       status = VerificationStatus.VALID;
-    } else if (!isValid || overallScore < 40) {
+    } else if (!smtpResult.valid || smtpResult.confidence < 40) {
       status = VerificationStatus.INVALID;
     } else {
       status = VerificationStatus.RISKY;
     }
 
     return {
-      email,
+      email: smtpResult.email,
       status,
-      isValid,
-      isCatchAll: false, // Can't detect with basic verification
-      isDisposable,
-      isRoleAccount,
-      syntaxScore,
-      domainScore,
-      smtpScore,
-      overallScore,
-      provider: "ml-fallback",
+      isValid: smtpResult.valid,
+      isCatchAll: false, // SMTP verifier doesn't detect catch-all
+      isDisposable: smtpResult.disposable,
+      isRoleAccount: smtpResult.roleAccount,
+      syntaxScore: smtpResult.syntaxValid ? 100 : 0,
+      domainScore: smtpResult.mxRecordsFound ? 90 : (smtpResult.domainExists ? 50 : 0),
+      smtpScore: smtpResult.mxRecordsFound ? 85 : 20,
+      overallScore: smtpResult.confidence,
+      provider: "smtp",
     };
-  }
-
-  /**
-   * Check if domain is in disposable email list
-   */
-  private isDisposableDomain(domain: string): boolean {
-    const disposableDomains = [
-      "tempmail.com",
-      "guerrillamail.com",
-      "mailinator.com",
-      "10minutemail.com",
-      "trashmail.com",
-      "throwaway.email",
-      "temp-mail.org",
-      "fakeinbox.com",
-      "maildrop.cc",
-      "yopmail.com",
-    ];
-
-    return disposableDomains.some((d) => domain.toLowerCase().includes(d));
-  }
-
-  /**
-   * Check if email is a role account (info@, admin@, etc.)
-   */
-  private isRoleAccount(localPart: string): boolean {
-    const roleKeywords = [
-      "info",
-      "admin",
-      "support",
-      "sales",
-      "contact",
-      "hello",
-      "help",
-      "noreply",
-      "no-reply",
-      "service",
-      "office",
-      "mail",
-      "webmaster",
-      "postmaster",
-    ];
-
-    const lowerLocal = localPart.toLowerCase();
-    return roleKeywords.some((keyword) => lowerLocal === keyword);
-  }
-
-  /**
-   * Check if domain exists (basic DNS check)
-   */
-  private async checkDomainExists(domain: string): Promise<boolean> {
-    try {
-      // In a real implementation, you'd check DNS MX records
-      // For now, we'll do a simple HTTP check
-      const response = await fetch(`https://${domain}`, {
-        method: "HEAD",
-        signal: AbortSignal.timeout(5000),
-      });
-
-      return response.ok || response.status < 500;
-    } catch {
-      // Domain might not have a website but could still have MX records
-      // In production, use proper DNS lookup
-      return true; // Assume valid to avoid false negatives
-    }
   }
 
   /**
