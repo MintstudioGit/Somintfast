@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { searchOsmBusinesses } from "@/lib/sources/osm";
+import { googleTextSearch } from "@/lib/sources/google-places";
 
 const QuerySchema = z.object({
   city: z.string().min(1),
@@ -10,29 +10,31 @@ const QuerySchema = z.object({
 
 /**
  * Public (no-auth) discovery search for the UI.
- * Uses OpenStreetMap (Overpass) to fetch real businesses.
+ * Uses Google Places Text Search (requires GOOGLE_MAPS_API_KEY).
  */
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const parsed = QuerySchema.safeParse({
-    city: url.searchParams.get("city") ?? "",
-    q: url.searchParams.get("q") ?? undefined,
-    limit: url.searchParams.get("limit") ?? undefined,
-  });
+  try {
+    const url = new URL(req.url);
+    const parsed = QuerySchema.safeParse({
+      city: url.searchParams.get("city") ?? "",
+      q: url.searchParams.get("q") ?? undefined,
+      limit: url.searchParams.get("limit") ?? undefined,
+    });
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid query", issues: parsed.error.flatten() },
-      { status: 400 },
-    );
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid query", issues: parsed.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    const query = `${parsed.data.q?.trim() || "business"} in ${parsed.data.city.trim()}`;
+    const places = await googleTextSearch({ query, maxResults: parsed.data.limit ?? 20 });
+
+    return NextResponse.json({ places });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Discover failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const places = await searchOsmBusinesses({
-    city: parsed.data.city,
-    query: parsed.data.q,
-    limit: parsed.data.limit,
-  });
-
-  return NextResponse.json({ places });
 }
 

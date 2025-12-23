@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { searchOsmBusinesses } from "@/lib/sources/osm";
+import { googlePlaceDetails, googleTextSearch } from "@/lib/sources/google-places";
 
 const BodySchema = z.object({
   city: z.string().min(1),
@@ -11,51 +11,63 @@ const BodySchema = z.object({
 
 /**
  * Public (no-auth) import for the UI:
- * searches OSM and inserts results into the local DB.
+ * searches Google Places and inserts results into the local DB.
  */
 export async function POST(req: Request) {
-  const json = await req.json().catch(() => null);
-  const parsed = BodySchema.safeParse(json);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid payload", issues: parsed.error.flatten() },
-      { status: 400 },
-    );
+  try {
+    const json = await req.json().catch(() => null);
+    const parsed = BodySchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid payload", issues: parsed.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    const query = `${parsed.data.q?.trim() || "business"} in ${parsed.data.city.trim()}`;
+    const results = await googleTextSearch({ query, maxResults: parsed.data.limit ?? 20 });
+
+    if (results.length === 0) return NextResponse.json({ created: 0, leads: [] });
+
+    const created: any[] = [];
+    for (const p of results) {
+      // de-dupe by google place_id
+      const existing = await prisma.lead.findFirst({
+        where: { source: "google_places", sourceRef: p.placeId },
+      });
+      if (existing) continue;
+
+      // fetch details to get website/phone when available
+      let details: any = null;
+      try {
+        details = await googlePlaceDetails(p.placeId);
+      } catch {
+        details = p;
+      }
+
+      const lead = await prisma.lead.create({
+        data: {
+          source: "google_places",
+          sourceRef: details.placeId,
+          companyName: details.name,
+          website: details.website,
+          phone: details.phone,
+          address: details.address,
+          location:
+            details.location && typeof details.location.lat === "number"
+              ? `${details.location.lat.toFixed(5)}, ${details.location.lng.toFixed(5)}`
+              : parsed.data.city,
+          notes: "Imported from Google Places (Discover).",
+          enrichedAt: new Date(),
+        },
+      });
+      created.push(lead);
+    }
+
+    return NextResponse.json({ created: created.length, leads: created }, { status: 201 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Import failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const places = await searchOsmBusinesses({
-    city: parsed.data.city,
-    query: parsed.data.q,
-    limit: parsed.data.limit,
-  });
-
-  if (places.length === 0) return NextResponse.json({ created: 0, leads: [] });
-
-  const created: any[] = [];
-  for (const p of places) {
-    const existing = await prisma.lead.findFirst({
-      where: {
-        companyName: p.name,
-        ...(p.website ? { website: p.website } : {}),
-      },
-    });
-    if (existing) continue;
-
-    const lead = await prisma.lead.create({
-      data: {
-        companyName: p.name,
-        website: p.website,
-        email: p.email,
-        phone: p.phone,
-        address: p.address,
-        location: p.location ?? parsed.data.city,
-        notes: "Imported from OpenStreetMap (Discover).",
-        enrichedAt: new Date(),
-      },
-    });
-    created.push(lead);
-  }
-
-  return NextResponse.json({ created: created.length, leads: created }, { status: 201 });
 }
 
