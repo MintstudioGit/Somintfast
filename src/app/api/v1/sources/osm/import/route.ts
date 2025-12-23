@@ -41,23 +41,25 @@ export async function POST(req: Request) {
   }
 
   // Create leads; de-dupe by (customerId, companyName, website) best-effort
-  const leads = await prisma.$transaction(
-    places.map((p) =>
-      prisma.lead.create({
-        data: {
-          customerId: auth.customerId,
-          companyName: p.name,
-          website: p.website,
-          email: p.email,
-          phone: p.phone,
-          address: p.address,
-          location: p.location ?? parsed.data.city,
-          notes: `Imported from OpenStreetMap (Overpass).`,
-          enrichedAt: new Date(),
-        },
-      }),
-    ),
-  );
+  const leads = [];
+  for (const p of places) {
+    const lead = await prisma.lead.create({
+      data: {
+        customerId: auth.customerId,
+        source: "osm",
+        sourceRef: p.sourceRef ?? null,
+        companyName: p.name,
+        website: p.website,
+        email: p.email,
+        phone: p.phone,
+        address: p.address,
+        location: p.location ?? parsed.data.city,
+        notes: `Imported from OpenStreetMap (Overpass).`,
+        enrichedAt: new Date(),
+      },
+    });
+    leads.push(lead);
+  }
 
   void logUsage({
     customerId: auth.customerId,

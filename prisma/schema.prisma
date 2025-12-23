@@ -64,6 +64,9 @@ model Lead {
   customerId  String?
   customer    Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
+  source      String?
+  sourceRef   String?    // e.g. "node/123", "way/456"
+
   companyName String
   website     String?
   email       String?
@@ -81,6 +84,7 @@ model Lead {
   updatedAt   DateTime   @updatedAt
 
   @@index([customerId, createdAt])
+  @@unique([customerId, source, sourceRef])
 }
 
 enum LeadStatus {
