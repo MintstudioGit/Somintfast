@@ -182,7 +182,20 @@ export default function DatabaseView() {
       if (discoverQuery.trim()) params.set("q", discoverQuery.trim());
       params.set("limit", "25");
       const res = await fetch(`/api/discover/places?${params.toString()}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Discover failed (${res.status})`);
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type") ?? "";
+        const bodyText = await res.text().catch(() => "");
+        let detail = bodyText.slice(0, 300);
+        if (contentType.includes("application/json")) {
+          try {
+            const j = JSON.parse(bodyText) as { error?: string };
+            detail = j?.error ? j.error : detail;
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(`Discover failed (${res.status})${detail ? `: ${detail}` : ""}`);
+      }
       const json = (await res.json()) as { places?: unknown };
       setDiscoverPlaces(Array.isArray(json.places) ? (json.places as DiscoverPlace[]) : []);
     } catch (e) {
@@ -206,8 +219,18 @@ export default function DatabaseView() {
         }),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Import failed (${res.status}) ${text.slice(0, 200)}`.trim());
+        const contentType = res.headers.get("content-type") ?? "";
+        const bodyText = await res.text().catch(() => "");
+        let detail = bodyText.slice(0, 300);
+        if (contentType.includes("application/json")) {
+          try {
+            const j = JSON.parse(bodyText) as { error?: string };
+            detail = j?.error ? j.error : detail;
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(`Import failed (${res.status})${detail ? `: ${detail}` : ""}`);
       }
       const json = (await res.json()) as { leads?: LeadRow[] };
       if (Array.isArray(json.leads) && json.leads.length) {

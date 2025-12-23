@@ -13,6 +13,7 @@ export type SerpGoogleMapsPlace = {
 type SerpApiResponse = {
   search_metadata?: { status?: string };
   error?: string;
+  error_message?: string;
   local_results?: Array<{
     title?: string;
     website?: string;
@@ -75,7 +76,8 @@ export async function serpApiGoogleMapsSearch(params: {
   const status = json.search_metadata?.status ?? "unknown";
   if (status !== "Success") {
     // SerpAPI uses 200 OK even for some failures
-    throw new Error(`SerpAPI error: ${json.error ?? status}`);
+    const msg = json.error ?? json.error_message ?? status;
+    throw new Error(`SerpAPI error: ${msg}`);
   }
 
   const results = (json.local_results ?? [])
