@@ -9,14 +9,20 @@ export default function Home() {
             MintLeadBase
           </h1>
           <p className="mt-2 text-zinc-600">
-            A clean lead database with a flexible table UI (inspired by your Figma).
+            B2B lead generation with web scraping, email verification, and Apollo-like search.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
-              href="/database"
+              href="/leadfinder"
               className="inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800"
             >
-              Open Database
+              LeadFinder Search
+            </Link>
+            <Link
+              href="/database"
+              className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              Database View
             </Link>
             <a
               href="/api/leads"
@@ -29,21 +35,21 @@ export default function Home() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="text-sm font-medium text-zinc-950">Flexible table</div>
+            <div className="text-sm font-medium text-zinc-950">Apollo-like Search</div>
             <div className="mt-1 text-sm text-zinc-600">
-              Search, sort, pagination, and column visibility.
+              Find B2B leads with advanced filters and real-time search.
             </div>
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="text-sm font-medium text-zinc-950">Row details</div>
+            <div className="text-sm font-medium text-zinc-950">Email Verification</div>
             <div className="mt-1 text-sm text-zinc-600">
-              Click a row to open a details panel.
+              Free SMTP verification and paid Reoon API integration.
             </div>
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="text-sm font-medium text-zinc-950">Prisma API</div>
+            <div className="text-sm font-medium text-zinc-950">Multi-Source Data</div>
             <div className="mt-1 text-sm text-zinc-600">
-              `/api/leads` CRUD backed by SQLite.
+              Google Maps enrichment + Impressum scraping.
             </div>
           </div>
         </div>
