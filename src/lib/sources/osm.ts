@@ -13,7 +13,20 @@ function escapeOverpassString(s: string) {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-type OverpassResponse = { ok: boolean; status: number; elements: any[]; error?: string };
+type OverpassElement = {
+  type?: string;
+  id?: number;
+  lat?: number;
+  lon?: number;
+  center?: { lat?: number; lon?: number };
+  tags?: Record<string, string>;
+};
+
+type OverpassResponse = { ok: boolean; status: number; elements: OverpassElement[]; error?: string };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
 
 async function overpassRequest(data: string, timeoutMs: number): Promise<OverpassResponse> {
   const controller = new AbortController();
@@ -30,8 +43,11 @@ async function overpassRequest(data: string, timeoutMs: number): Promise<Overpas
       const text = await res.text().catch(() => "");
       return { ok: false, status, elements: [], error: text.slice(0, 200) };
     }
-    const json = (await res.json()) as any;
-    const elements: any[] = Array.isArray(json?.elements) ? json.elements : [];
+    const json = (await res.json()) as unknown;
+    const elementsRaw = isRecord(json) ? json["elements"] : undefined;
+    const elements: OverpassElement[] = Array.isArray(elementsRaw)
+      ? (elementsRaw as OverpassElement[])
+      : [];
     return { ok: true, status, elements };
   } catch {
     return { ok: false, status: 0, elements: [], error: "network_error" };
@@ -40,7 +56,7 @@ async function overpassRequest(data: string, timeoutMs: number): Promise<Overpas
   }
 }
 
-function toPlaces(elements: any[], cityFallback: string): OsmPlace[] {
+function toPlaces(elements: OverpassElement[], cityFallback: string): OsmPlace[] {
   const places: OsmPlace[] = [];
   for (const el of elements) {
     const tags = el.tags ?? {};

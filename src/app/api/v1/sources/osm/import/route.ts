@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logUsage, requireApiKey } from "@/lib/api-key";
-import { searchOsmBusinesses } from "@/lib/sources/osm";
+import { googlePlaceDetails, googleTextSearch } from "@/lib/sources/google-places";
+import type { GooglePlace } from "@/lib/sources/google-places";
 
 const ImportSchema = z.object({
   city: z.string().min(1),
@@ -11,7 +12,8 @@ const ImportSchema = z.object({
 });
 
 /**
- * Real-data import from OpenStreetMap via Overpass API.
+ * Legacy route (kept for backwards compatibility).
+ * Now imports from Google Places instead of OpenStreetMap.
  * Creates leads scoped to the authenticated customer.
  */
 export async function POST(req: Request) {
@@ -27,8 +29,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const places = await searchOsmBusinesses(parsed.data);
-  if (places.length === 0) {
+  const query = `${parsed.data.query?.trim() || "business"} in ${parsed.data.city.trim()}`;
+  const results = await googleTextSearch({ query, maxResults: parsed.data.limit ?? 20 });
+  if (results.length === 0) {
     void logUsage({
       customerId: auth.customerId,
       apiKeyId: auth.apiKeyId,
@@ -40,25 +43,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ created: 0, leads: [] });
   }
 
-  // Create leads; de-dupe by (customerId, companyName, website) best-effort
+  // Create leads; de-dupe via @@unique([customerId, source, sourceRef])
   const leads = [];
-  for (const p of places) {
-    const lead = await prisma.lead.create({
-      data: {
-        customerId: auth.customerId,
-        source: "osm",
-        sourceRef: p.sourceRef ?? null,
-        companyName: p.name,
-        website: p.website,
-        email: p.email,
-        phone: p.phone,
-        address: p.address,
-        location: p.location ?? parsed.data.city,
-        notes: `Imported from OpenStreetMap (Overpass).`,
-        enrichedAt: new Date(),
-      },
-    });
-    leads.push(lead);
+  for (const p of results) {
+    let details: GooglePlace | null = null;
+    try {
+      details = await googlePlaceDetails(p.placeId);
+    } catch {
+      details = p;
+    }
+
+    try {
+      const lead = await prisma.lead.create({
+        data: {
+          customerId: auth.customerId,
+          source: "google_places",
+          sourceRef: details.placeId,
+          companyName: details.name,
+          website: details.website,
+          phone: details.phone,
+          address: details.address,
+          location:
+            details.location && typeof details.location.lat === "number"
+              ? `${details.location.lat.toFixed(5)}, ${details.location.lng.toFixed(5)}`
+              : parsed.data.city,
+          notes: `Imported from Google Places (legacy /osm/import).`,
+          enrichedAt: new Date(),
+        },
+      });
+      leads.push(lead);
+    } catch {
+      // unique constraint hit or any other issue; ignore and continue
+    }
   }
 
   void logUsage({

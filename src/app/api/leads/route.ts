@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { LeadStatus } from "@prisma/client";
 
 const CreateLeadSchema = z.object({
   companyName: z.string().min(1),
@@ -19,7 +20,11 @@ export async function GET(req: Request) {
     // /api/leads?q=...&status=NEW&limit=25&cursor=<id>
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") ?? "").trim();
-    const status = url.searchParams.get("status") ?? undefined;
+    const statusParam = url.searchParams.get("status") ?? undefined;
+    const status =
+      statusParam && Object.values(LeadStatus).includes(statusParam as LeadStatus)
+        ? (statusParam as LeadStatus)
+        : undefined;
     const limit = Math.min(
       100,
       Math.max(1, Number(url.searchParams.get("limit") ?? "50")),
@@ -27,7 +32,7 @@ export async function GET(req: Request) {
     const cursor = url.searchParams.get("cursor") ?? undefined;
 
     const where: Prisma.LeadWhereInput = {};
-    if (status) where.status = status as any;
+    if (status) where.status = status;
     if (q) {
       where.OR = [
         { companyName: { contains: q } },
