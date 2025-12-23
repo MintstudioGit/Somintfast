@@ -1,4 +1,4 @@
-// MintLeadBase Prisma schema
+// MintLeadBase + LeadFinder Prisma schema
 
 generator client {
   provider = "prisma-client-js"
@@ -9,6 +9,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Original Lead model
 model Lead {
   id          String     @id @default(cuid())
   companyName String
@@ -23,10 +24,115 @@ model Lead {
   updatedAt   DateTime   @updatedAt
 }
 
+// Scraped lead data from German websites
+model ScrapedLead {
+  id            String   @id @default(cuid())
+  websiteUrl    String
+  companyName   String?
+  ownerName     String?
+  email         String?
+  phone         String?
+  address       String?
+  rawData       String?  // JSON string of all extracted data
+  scrapedAt     DateTime @default(now())
+
+  // Quality tier when scraped
+  tier          SubscriptionTier
+
+  // Relationship to email verification
+  verification  EmailVerification?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tier])
+  @@index([scrapedAt])
+}
+
+// Email verification results
+model EmailVerification {
+  id                String             @id @default(cuid())
+  email             String
+  status            VerificationStatus
+
+  // Verification details
+  isValid           Boolean
+  isCatchAll        Boolean            @default(false)
+  isDisposable      Boolean            @default(false)
+  isRoleAccount     Boolean            @default(false)
+
+  // Confidence scores (0-100)
+  syntaxScore       Int?
+  domainScore       Int?
+  smtpScore         Int?
+  overallScore      Int?
+
+  // Provider info
+  provider          String?            // "reoon" or "ml-fallback"
+
+  // Response metadata
+  rawResponse       String?            // JSON string of full API response
+
+  // Relationship
+  scrapedLeadId     String             @unique
+  scrapedLead       ScrapedLead        @relation(fields: [scrapedLeadId], references: [id], onDelete: Cascade)
+
+  verifiedAt        DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+
+  @@index([status])
+  @@index([isValid])
+}
+
+// Quality metrics tracking
+model QualityMetrics {
+  id                    String           @id @default(cuid())
+  tier                  SubscriptionTier
+
+  // Counts
+  totalScraped          Int              @default(0)
+  emailsFound           Int              @default(0)
+  emailsVerified        Int              @default(0)
+  emailsValid           Int              @default(0)
+
+  // Rates (stored as percentages 0-100)
+  emailFoundRate        Float            @default(0)
+  emailValidRate        Float            @default(0)
+  overallQualityScore   Float            @default(0)
+
+  // Time period
+  periodStart           DateTime
+  periodEnd             DateTime
+
+  createdAt             DateTime         @default(now())
+
+  @@index([tier])
+  @@index([periodStart])
+}
+
+// Subscription tier enum
+enum SubscriptionTier {
+  SOLO          // €49/mo - Basic scraping
+  STARTER       // €99/mo - Enhanced scraping
+  TEAM          // €299/mo - Premium scraping + verification
+  PROFESSIONAL  // €799/mo - Advanced features
+  ENTERPRISE    // €1,990/mo - Full features + priority
+}
+
+// Lead status enum
 enum LeadStatus {
   NEW
   CONTACTED
   QUALIFIED
   WON
   LOST
+}
+
+// Email verification status
+enum VerificationStatus {
+  PENDING
+  VALID
+  INVALID
+  RISKY
+  UNKNOWN
 }
