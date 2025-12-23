@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import type { Lead } from "@prisma/client";
 import { serpApiGoogleMapsSearch } from "@/lib/sources/serpapi-google-maps";
+import type { SerpGoogleMapsPlace } from "@/lib/sources/serpapi-google-maps";
 import { scrapeImpressum, type ImpressumResult } from "@/lib/sources/impressum";
 
 const BodySchema = z.object({
@@ -11,10 +12,27 @@ const BodySchema = z.object({
   limit: z.number().int().min(1).max(50).optional(),
 });
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let idx = 0;
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (idx < items.length) {
+      const current = idx++;
+      results[current] = await fn(items[current]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /**
- * Legacy alias (kept for backwards compatibility).
  * Public (no-auth) import for the UI:
  * searches Google Maps via SerpAPI and inserts results into the local DB.
+ * Also tries to extract owner/contact from the website Impressum.
  */
 export async function POST(req: Request) {
   try {
@@ -35,17 +53,23 @@ export async function POST(req: Request) {
 
     if (results.length === 0) return NextResponse.json({ created: 0, leads: [] });
 
+    const enriched = await mapWithConcurrency(
+      results,
+      4,
+      async (p: SerpGoogleMapsPlace): Promise<{ place: SerpGoogleMapsPlace; imp: ImpressumResult | null }> => {
+        if (!p.website) return { place: p, imp: null };
+        const imp = await scrapeImpressum(p.website).catch((): ImpressumResult => ({}));
+        return { place: p, imp };
+      },
+    );
+
     const created: Lead[] = [];
-    for (const p of results) {
+    for (const { place: p, imp } of enriched) {
       // de-dupe by sourceRef
       const existing = await prisma.lead.findFirst({
         where: { source: "serpapi_google_maps", sourceRef: p.sourceRef },
       });
       if (existing) continue;
-
-      const imp: ImpressumResult = p.website
-        ? await scrapeImpressum(p.website).catch((): ImpressumResult => ({}))
-        : {};
 
       const lead = await prisma.lead.create({
         data: {
@@ -53,19 +77,19 @@ export async function POST(req: Request) {
           sourceRef: p.sourceRef,
           companyName: p.name,
           website: p.website,
-          phone: imp.phone ?? p.phone,
-          email: imp.email,
-          owner: imp.owner,
-          address: imp.address ?? p.address,
+          phone: imp?.phone ?? p.phone,
+          email: imp?.email,
+          owner: imp?.owner,
+          address: imp?.address ?? p.address,
           location:
             p.location && typeof p.location.lat === "number"
               ? `${p.location.lat.toFixed(5)}, ${p.location.lng.toFixed(5)}`
               : parsed.data.city,
           notes: [
-            "Imported from Google Maps (SerpAPI Discover, legacy /osm/import).",
+            "Imported from Google Maps (SerpAPI Discover).",
             typeof p.rating === "number" ? `Rating: ${p.rating}` : null,
             typeof p.reviews === "number" ? `Reviews: ${p.reviews}` : null,
-            imp.sourceUrl ? `Impressum: ${imp.sourceUrl}` : null,
+            imp?.sourceUrl ? `Impressum: ${imp.sourceUrl}` : null,
           ]
             .filter(Boolean)
             .join("\n"),

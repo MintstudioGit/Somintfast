@@ -8,6 +8,10 @@ MintLeadBase is a lightweight lead database with a **Figma-style flexible table 
 
 ```bash
 npm install
+#
+# Required for Discover (SerpAPI Google Maps):
+# export SERPAPI_API_KEY="..."
+#
 npx prisma migrate dev
 npm run dev
 ```
@@ -67,3 +71,8 @@ curl http://localhost:3000/api/v1/metrics -H "authorization: Bearer $TOKEN"
 ## Notes
 
 The older text about `POST /api/leadfinder/scrape` and `GET /api/leadfinder/quality/metrics` applies to a **different LeadFinder scraping system**, not this MintLeadBase codebase.
+
+## Environment variables
+
+- **`SERPAPI_API_KEY`**: used by `/api/discover/places*` and Google Maps imports.
+  - Local: put it in `.env.local` (project root) as `SERPAPI_API_KEY=...`

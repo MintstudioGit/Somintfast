@@ -18,12 +18,12 @@ export default function Home() {
             >
               Open Database
             </Link>
-            <a
+            <Link
               href="/api/leads"
               className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             >
               View API (JSON)
-            </a>
+            </Link>
           </div>
         </div>
 

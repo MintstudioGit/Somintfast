@@ -25,6 +25,16 @@ import {
 
 type LeadRow = Lead;
 
+type DiscoverPlace = {
+  name: string;
+  website?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  location?: string;
+  sourceRef?: string;
+};
+
 function badgeClasses(status: Lead["status"]) {
   switch (status) {
     case "NEW":
@@ -55,16 +65,7 @@ export default function DatabaseView() {
   const [discoverQuery, setDiscoverQuery] = useState("zahnarzt");
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
-  const [discoverPlaces, setDiscoverPlaces] = useState<
-    Array<{
-      name: string;
-      website?: string;
-      phone?: string;
-      email?: string;
-      address?: string;
-      location?: string;
-    }>
-  >([]);
+  const [discoverPlaces, setDiscoverPlaces] = useState<DiscoverPlace[]>([]);
 
   const selected = useMemo(
     () => rows.find((r) => r.id === selectedId) ?? null,
@@ -180,10 +181,23 @@ export default function DatabaseView() {
       params.set("city", discoverCity.trim());
       if (discoverQuery.trim()) params.set("q", discoverQuery.trim());
       params.set("limit", "25");
-      const res = await fetch(`/api/discover/osm?${params.toString()}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Discover failed (${res.status})`);
-      const json = (await res.json()) as { places?: any[] };
-      setDiscoverPlaces(Array.isArray(json.places) ? json.places : []);
+      const res = await fetch(`/api/discover/places?${params.toString()}`, { cache: "no-store" });
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type") ?? "";
+        const bodyText = await res.text().catch(() => "");
+        let detail = bodyText.slice(0, 300);
+        if (contentType.includes("application/json")) {
+          try {
+            const j = JSON.parse(bodyText) as { error?: string };
+            detail = j?.error ? j.error : detail;
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(`Discover failed (${res.status})${detail ? `: ${detail}` : ""}`);
+      }
+      const json = (await res.json()) as { places?: unknown };
+      setDiscoverPlaces(Array.isArray(json.places) ? (json.places as DiscoverPlace[]) : []);
     } catch (e) {
       setDiscoverError(e instanceof Error ? e.message : "Discover failed");
     } finally {
@@ -195,7 +209,7 @@ export default function DatabaseView() {
     setDiscoverLoading(true);
     setDiscoverError(null);
     try {
-      const res = await fetch("/api/discover/osm/import", {
+      const res = await fetch("/api/discover/places/import", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -205,8 +219,18 @@ export default function DatabaseView() {
         }),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Import failed (${res.status}) ${text.slice(0, 200)}`.trim());
+        const contentType = res.headers.get("content-type") ?? "";
+        const bodyText = await res.text().catch(() => "");
+        let detail = bodyText.slice(0, 300);
+        if (contentType.includes("application/json")) {
+          try {
+            const j = JSON.parse(bodyText) as { error?: string };
+            detail = j?.error ? j.error : detail;
+          } catch {
+            // ignore
+          }
+        }
+        throw new Error(`Import failed (${res.status})${detail ? `: ${detail}` : ""}`);
       }
       const json = (await res.json()) as { leads?: LeadRow[] };
       if (Array.isArray(json.leads) && json.leads.length) {
@@ -379,7 +403,10 @@ export default function DatabaseView() {
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Discover real leads</div>
                 <div className="mt-1 text-sm text-zinc-600">
-                  Uses Google Places (requires <code className="rounded bg-zinc-100 px-1 py-0.5">GOOGLE_MAPS_API_KEY</code>). Search, then import into your database.
+                  Uses SerpAPI Google Maps (requires{" "}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5">SERPAPI_API_KEY</code>). Search,
+                  then import into your database. We also try to find the owner via the website
+                  Impressum when available.
                 </div>
               </div>
               <div className="flex items-center gap-2">

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logUsage, requireApiKey } from "@/lib/api-key";
-import { searchOsmBusinesses } from "@/lib/sources/osm";
+import { serpApiGoogleMapsSearch } from "@/lib/sources/serpapi-google-maps";
+import type { SerpGoogleMapsPlace } from "@/lib/sources/serpapi-google-maps";
+import { scrapeImpressum, type ImpressumResult } from "@/lib/sources/impressum";
 
 const ImportSchema = z.object({
   city: z.string().min(1),
@@ -11,7 +13,8 @@ const ImportSchema = z.object({
 });
 
 /**
- * Real-data import from OpenStreetMap via Overpass API.
+ * Legacy route (kept for backwards compatibility).
+ * Now imports from Google Maps via SerpAPI instead of OpenStreetMap.
  * Creates leads scoped to the authenticated customer.
  */
 export async function POST(req: Request) {
@@ -27,8 +30,12 @@ export async function POST(req: Request) {
     );
   }
 
-  const places = await searchOsmBusinesses(parsed.data);
-  if (places.length === 0) {
+  const query = `${parsed.data.query?.trim() || "business"} in ${parsed.data.city.trim()}`;
+  const results = await serpApiGoogleMapsSearch({
+    query,
+    maxResults: parsed.data.limit ?? 20,
+  });
+  if (results.length === 0) {
     void logUsage({
       customerId: auth.customerId,
       apiKeyId: auth.apiKeyId,
@@ -40,25 +47,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ created: 0, leads: [] });
   }
 
-  // Create leads; de-dupe by (customerId, companyName, website) best-effort
+  // Create leads; de-dupe via @@unique([customerId, source, sourceRef])
   const leads = [];
-  for (const p of places) {
-    const lead = await prisma.lead.create({
-      data: {
-        customerId: auth.customerId,
-        source: "osm",
-        sourceRef: p.sourceRef ?? null,
-        companyName: p.name,
-        website: p.website,
-        email: p.email,
-        phone: p.phone,
-        address: p.address,
-        location: p.location ?? parsed.data.city,
-        notes: `Imported from OpenStreetMap (Overpass).`,
-        enrichedAt: new Date(),
-      },
-    });
-    leads.push(lead);
+  for (const p of results) {
+    const place = p as SerpGoogleMapsPlace;
+    const imp: ImpressumResult = place.website
+      ? await scrapeImpressum(place.website).catch((): ImpressumResult => ({}))
+      : {};
+
+    try {
+      const lead = await prisma.lead.create({
+        data: {
+          customerId: auth.customerId,
+          source: "serpapi_google_maps",
+          sourceRef: place.sourceRef,
+          companyName: place.name,
+          website: place.website,
+          phone: imp.phone ?? place.phone,
+          email: imp.email,
+          owner: imp.owner,
+          address: imp.address ?? place.address,
+          location:
+            place.location && typeof place.location.lat === "number"
+              ? `${place.location.lat.toFixed(5)}, ${place.location.lng.toFixed(5)}`
+              : parsed.data.city,
+          notes: [
+            "Imported from Google Maps (SerpAPI, legacy /osm/import).",
+            typeof place.rating === "number" ? `Rating: ${place.rating}` : null,
+            typeof place.reviews === "number" ? `Reviews: ${place.reviews}` : null,
+            imp.sourceUrl ? `Impressum: ${imp.sourceUrl}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          enrichedAt: new Date(),
+        },
+      });
+      leads.push(lead);
+    } catch {
+      // unique constraint hit or any other issue; ignore and continue
+    }
   }
 
   void logUsage({

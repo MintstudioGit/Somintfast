@@ -10,8 +10,9 @@ const QuerySchema = z.object({
 
 /**
  * Public (no-auth) discovery search for the UI.
- * Legacy alias (kept for backwards compatibility).
  * Uses SerpAPI Google Maps engine (requires SERPAPI_API_KEY).
+ *
+ * Returns a UI-friendly shape (location string, optional address).
  */
 export async function GET(req: Request) {
   try {
@@ -35,7 +36,6 @@ export async function GET(req: Request) {
       maxResults: parsed.data.limit ?? 20,
     });
 
-    // Keep a stable, UI-friendly response shape (matching legacy OSM-ish fields).
     const places = results.map((p) => ({
       source: "serpapi_google_maps",
       sourceRef: p.sourceRef,
