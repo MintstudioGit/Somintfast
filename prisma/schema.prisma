@@ -9,8 +9,61 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Customer {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  apiKeys ApiKey[]
+  leads   Lead[]
+  usage   UsageLog[]
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  name        String
+  prefix      String   @unique
+  keyHash     String   @unique
+  last4       String
+
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime?
+
+  usage UsageLog[]
+
+  @@index([customerId])
+}
+
+model UsageLog {
+  id        String   @id @default(cuid())
+  customerId String
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  apiKeyId  String?
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  route     String
+  method    String
+  status    Int
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
 model Lead {
   id          String     @id @default(cuid())
+  customerId  String?
+  customer    Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
   companyName String
   website     String?
   industry    String?
@@ -21,6 +74,8 @@ model Lead {
 
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+
+  @@index([customerId, createdAt])
 }
 
 enum LeadStatus {
