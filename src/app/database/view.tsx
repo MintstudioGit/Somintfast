@@ -46,6 +46,7 @@ function badgeClasses(status: Lead["status"]) {
 export default function DatabaseView() {
   const [rows, setRows] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [globalFilter, setGlobalFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(
@@ -126,10 +127,33 @@ export default function DatabaseView() {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setLoadError(null);
       try {
         const res = await fetch("/api/leads", { cache: "no-store" });
-        const json = (await res.json()) as { leads: LeadRow[] };
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            `Failed to load leads (${res.status}). ${
+              text ? "Server response: " + text.slice(0, 200) : ""
+            }`.trim(),
+          );
+        }
+
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            `Expected JSON but got '${contentType}'. ${
+              text ? "Server response: " + text.slice(0, 200) : ""
+            }`.trim(),
+          );
+        }
+
+        const json = (await res.json()) as { leads?: LeadRow[] };
         if (!cancelled) setRows(json.leads ?? []);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Failed to load leads";
+        if (!cancelled) setLoadError(message);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -250,6 +274,16 @@ export default function DatabaseView() {
             </div>
           </div>
         </div>
+
+        {loadError ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <div className="font-medium">Couldn’t load leads</div>
+            <div className="mt-1 break-words opacity-90">{loadError}</div>
+            <div className="mt-2 text-rose-700">
+              If this is a fresh setup, run: <code className="rounded bg-rose-100 px-1 py-0.5">npx prisma migrate dev</code>
+            </div>
+          </div>
+        ) : null}
 
         {/* Table + Details */}
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
