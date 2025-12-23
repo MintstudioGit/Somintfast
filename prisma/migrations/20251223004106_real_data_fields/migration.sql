@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Lead" ADD COLUMN "address" TEXT;
+ALTER TABLE "Lead" ADD COLUMN "email" TEXT;
+ALTER TABLE "Lead" ADD COLUMN "enrichedAt" DATETIME;
+ALTER TABLE "Lead" ADD COLUMN "phone" TEXT;
