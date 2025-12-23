@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import {
   Search,
   Filter,
@@ -18,6 +19,7 @@ import {
   Globe,
   Star,
   X,
+  Plus,
 } from "lucide-react";
 
 interface LeadResult {
@@ -202,13 +204,22 @@ export default function LeadFinderSearch() {
     <div className="min-h-screen bg-zinc-50">
       <div className="mx-auto max-w-7xl px-6 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
-            LeadFinder
-          </h1>
-          <p className="mt-2 text-zinc-600">
-            Search and discover B2B leads with verified contact information
-          </p>
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
+              LeadFinder
+            </h1>
+            <p className="mt-2 text-zinc-600">
+              Search and discover B2B leads with verified contact information
+            </p>
+          </div>
+          <Link
+            href="/leadfinder/scrape"
+            className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800"
+          >
+            <Plus className="h-4 w-4" />
+            Scrape Leads
+          </Link>
         </div>
 
         {/* Search Bar */}
